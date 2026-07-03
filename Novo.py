@@ -557,8 +557,8 @@ elif choice == menu[2]:
     # Organização visual dos Inputs
     st.subheader("Parâmetros de Manutenção e Falha")
     col1, col2 = st.columns(2)
-    MTBF_conv = col1.number_input("MTBF Peça Original (horas)", min_value=100, value=8760, step=500)
-    MTBF_print = col2.number_input("MTBF Peça Impressa FDM (horas)", min_value=100, value=4380, step=500)
+    MTBF_conv = col1.number_input("MTBF Peça Original (horas)", min_value=0, value=1, step=500)
+    MTBF_print = col2.number_input("MTBF Peça Impressa FDM (horas)", min_value=0, value=1, step=500)
     
     st.subheader("Parâmetros Logísticos (Lead Times)")
     col3, col4 = st.columns(2)
