@@ -560,23 +560,23 @@ elif choice == menu[2]:
     
     st.subheader("Parâmetros de Manutenção e Falha")
     col1, col2 = st.columns(2)
-    MTBF_conv = col1.number_input("MTBF Peça Original (horas)", min_value=100, value=8760, step=500)
-    MTBF_print = col2.number_input("MTBF Peça Impressa FDM (horas)", min_value=100, value=4380, step=500)
+    MTBF_conv = col1.number_input("MTBF Peça Original (horas)", min_value=100, value=5000, step=500)
+    MTBF_print = col2.number_input("MTBF Peça Impressa FDM (horas)", min_value=100, value=2500, step=500)
     
     st.subheader("Parâmetros Logísticos (Lead Times)")
     col3, col4 = st.columns(2)
-    L_rep = col3.number_input("Lead Time do Fornecedor Original (horas)", min_value=1, value=672, step=24)
-    L_ef = col4.number_input("Tempo de Impressão Emergencial (horas)", min_value=1, value=6, step=1)
+    L_rep = col3.number_input("Lead Time do Fornecedor Original (horas)", min_value=1, value=1500, step=24)
+    L_ef = col4.number_input("Tempo de Impressão Emergencial (horas)", min_value=1, value=8, step=1)
     
     st.subheader("Parâmetros de Custo (R$)")
     col5, col6, col7 = st.columns(3)
-    C1 = col5.number_input("Custo Unitário Original (C1)", min_value=0.0, value=150.0)
-    C2 = col6.number_input("Custo de Impressão (C2)", min_value=0.0, value=30.0)
+    C1 = col5.number_input("Custo Unitário Original (C1)", min_value=0.0, value=300.0)
+    C2 = col6.number_input("Custo de Impressão (C2)", min_value=0.0, value=50.0)
     K = col7.number_input("Custo Fixo por Pedido (K)", min_value=0.0, value=200.0)
     
     col8, col9 = st.columns(2)
-    Cb = col8.number_input("Custo de Downtime por Hora (Cb)", min_value=0.0, value=500.0)
-    Ch_ano = col9.number_input("Custo de Posse Anual (R$/Unidade)", min_value=0.0, value=96.0)
+    Cb = col8.number_input("Custo de Downtime por Hora (Cb)", min_value=0.0, value=3000.0)
+    Ch_ano = col9.number_input("Custo de Posse Anual (R$/Unidade)", min_value=0.0, value=50.0)
     
     st.subheader("Parâmetros de Otimização")
     col10, col11, col12 = st.columns(3) # <--- Três colunas agora
@@ -635,4 +635,4 @@ elif choice == menu[2]:
         p1.metric(label=f"Custo Médio Operacional Estimado (por Ano)", value=f"R$ {custo_medio_anual:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
         p2.metric(label="Disponibilidade da Fábrica (KPI)", value=f"{disponibilidade * 100:.3f}%")
         
-        st.info(f"**Nota Técnica:** O algoritmo realizou varreduras iterando num horizonte de **{Horizonte_T} horas**. O modelo integra a quantidade de **{N_Maquinas} máquinas** somando a taxa de falha de cada ativo independente para refletir a alta procura de sobressalentes.")
+       
