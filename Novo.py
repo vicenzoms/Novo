@@ -1,4 +1,4 @@
-
+# -*- coding: utf-8 -*-
 """
 Spare Parts Inventory Sizing System - Grupo RANDOM
 """
@@ -10,7 +10,6 @@ from scipy.stats import poisson, norm
 import base64
 from pathlib import Path
 from PIL import Image
-
 
 # Configuração inicial da página
 st.set_page_config(page_title="Dimensionamento de Sobressalentes - RANDOM", layout="wide")
@@ -53,7 +52,6 @@ if not st.session_state.authenticated:
         .main, .stApp {{ background: transparent !important; }}
         .block-container {{ max-width: 100% !important; padding: 0 !important; margin: 0 !important; }}
 
-        /* Fundo claro com gradiente sobre a imagem */
         .login-bg-full {{
             position: fixed;
             inset: 0;
@@ -92,7 +90,7 @@ if not st.session_state.authenticated:
             font-size: 1.8rem;
             font-weight: 700;
             letter-spacing: -0.02em;
-            color: #388E3C; /* Verde Material */
+            color: #388E3C;
             font-family: 'Roboto', sans-serif;
         }}
         
@@ -102,7 +100,6 @@ if not st.session_state.authenticated:
             margin-top: 5px;
         }}
 
-        /* Estilo do Cartão (Material Design Branco) */
         div[data-testid="stForm"] {{
             background: #ffffff !important;
             border-radius: 8px !important;
@@ -123,7 +120,6 @@ if not st.session_state.authenticated:
         }}
         div[data-testid="stForm"] input:focus {{ border-color: #388E3C !important; box-shadow: 0 0 0 1px #388E3C !important; }}
 
-        /* Botão Material Green */
         .stFormSubmitButton > button {{
             width: 100% !important;
             min-height: 2.8rem !important;
@@ -289,13 +285,10 @@ def exibir_resumo_streamlit(df, x_alvo, titulo, texto_destaque="Quantidade Recom
 
 # --- NOVAS FUNÇÕES PARA O OPTIMIZER MA (Simulação Dinâmica s*, s, S) ---
 
-def gerar_tempo_falha(mtbf):
-    """Gera um tempo de falha estocástico baseado na distribuição Exponencial"""
-    return max(1, int(np.random.exponential(mtbf)))
-
 def simular_politica_dual(s_star, s, S, params):
     """Executa a simulação horária (Time-Step) para uma política (s*, s, S) específica."""
     Horizonte_T = params['Horizonte_T']
+    N = params['N']
     L_rep = params['L_rep']
     L_ef = params['L_ef']
     MTBF_conv = params['MTBF_conv']
@@ -305,6 +298,23 @@ def simular_politica_dual(s_star, s, S, params):
     K = params['K']
     Ch_hora = params['Ch_hora']
     Cb = params['Cb']
+
+    # Função interna para calcular o tempo da próxima falha do sistema global
+    def gerar_tempo_falha_sistema(peca_uso, maquinas_paradas):
+        ativas = N - maquinas_paradas
+        if ativas <= 0:
+            return float('inf') # Todas as máquinas paradas, não há desgaste
+        
+        if peca_uso == 'Impressa':
+            # Se a peça impressa está em uso numa das máquinas
+            ativas_originais = max(0, ativas - 1)
+            taxa_total = (ativas_originais / MTBF_conv) + (1 / MTBF_print)
+        else:
+            # Todas as máquinas ativas usam peças originais
+            taxa_total = ativas / MTBF_conv
+            
+        mtbf_equivalente = 1 / taxa_total
+        return max(1, int(np.random.exponential(mtbf_equivalente)))
 
     # Inicialização de Estados
     It = S
@@ -316,7 +326,7 @@ def simular_politica_dual(s_star, s, S, params):
     Custo_Total = 0
     Horas_Indisponivel = 0
 
-    Tempo_Proxima_Falha = gerar_tempo_falha(MTBF_conv)
+    Tempo_Proxima_Falha = gerar_tempo_falha_sistema(Peca_Em_Uso, Bt)
     Tempo_Chegada_Convencional = float('inf')
     Tempo_Chegada_Impressao = float('inf')
 
@@ -329,11 +339,10 @@ def simular_politica_dual(s_star, s, S, params):
             Jt = 0
             Tempo_Chegada_Impressao = float('inf')
             
-            # Se a máquina estava parada aguardando peça
             if Bt > 0:
                 Bt -= 1
                 Peca_Em_Uso = 'Impressa'
-                Tempo_Proxima_Falha = t + gerar_tempo_falha(MTBF_print)
+                Tempo_Proxima_Falha = t + gerar_tempo_falha_sistema(Peca_Em_Uso, Bt)
 
         # 2. Evento: Chegada do Pedido Convencional
         if t == Tempo_Chegada_Convencional:
@@ -341,36 +350,34 @@ def simular_politica_dual(s_star, s, S, params):
             Ot = 0
             Tempo_Chegada_Convencional = float('inf')
             
-            # Liquidar backorders pendentes
             while Bt > 0 and It > 0:
                 Bt -= 1
                 It -= 1
                 Peca_Em_Uso = 'Original'
-                Tempo_Proxima_Falha = t + gerar_tempo_falha(MTBF_conv)
+                Tempo_Proxima_Falha = t + gerar_tempo_falha_sistema(Peca_Em_Uso, Bt)
                 
-            # Descarte preventivo da peça impressa se estiver em uso
             if Peca_Em_Uso == 'Impressa' and It > 0:
                 It -= 1
                 Peca_Em_Uso = 'Original'
                 Pt = 0
-                Tempo_Proxima_Falha = t + gerar_tempo_falha(MTBF_conv)
+                Tempo_Proxima_Falha = t + gerar_tempo_falha_sistema(Peca_Em_Uso, Bt)
 
         # 3. Evento: Chegada da Falha
         if t == Tempo_Proxima_Falha:
             if Peca_Em_Uso == 'Impressa':
-                Pt = 0  # Ponte falhou
+                Pt = 0  
                 
             if It > 0:
                 It -= 1
                 Peca_Em_Uso = 'Original'
-                Tempo_Proxima_Falha = t + gerar_tempo_falha(MTBF_conv)
+                Tempo_Proxima_Falha = t + gerar_tempo_falha_sistema(Peca_Em_Uso, Bt)
             elif Pt == 1:
                 Peca_Em_Uso = 'Impressa'
-                Tempo_Proxima_Falha = t + gerar_tempo_falha(MTBF_print)
+                Tempo_Proxima_Falha = t + gerar_tempo_falha_sistema(Peca_Em_Uso, Bt)
             else:
                 Bt += 1
-                Peca_Em_Uso = 'Nenhuma'
-                Tempo_Proxima_Falha = float('inf')  # Fica parada
+                Peca_Em_Uso = 'Nenhuma' if Bt == N else 'Original' # Atualiza estado
+                Tempo_Proxima_Falha = t + gerar_tempo_falha_sistema(Peca_Em_Uso, Bt)
 
         # 4. Avaliação dos Gatilhos
         IPt = It + Ot - Bt
@@ -403,13 +410,11 @@ def otimizar_gatilhos_grid(S, params):
     melhor_s_star = 0
     melhor_disp = 0.0
     
-    # Define os limites de busca da malha
     limite_s = max(1, S)
     
     for s in range(0, limite_s):
         for s_star in range(0, s + 1):
             
-            # Para reduzir o ruído estocástico, rodamos a política 3 vezes e fazemos a média
             custos_parciais = []
             disps_parciais = []
             for _ in range(3):
@@ -444,7 +449,6 @@ st.markdown("<h2 style='text-align: center; color: #388E3C;'>Spare Parts Invento
 
 menu = ["Analytical", "Optimizer", "Optimizer MA"]
 choice = st.sidebar.selectbox("Select here", menu)
-
 
 # --- MODO 1: ANALYTICAL ---
 if choice == menu[0]:
@@ -554,11 +558,10 @@ elif choice == menu[2]:
     st.header(menu[2] + " - Simulação Dual-Sourcing")
     st.write("Dimensionamento otimizado de política (s*, s, S) minimizando Custos de Inventário, Pedidos e Indisponibilidade.")
     
-    # Organização visual dos Inputs
     st.subheader("Parâmetros de Manutenção e Falha")
     col1, col2 = st.columns(2)
-    MTBF_conv = col1.number_input("MTBF Peça Original (horas)", min_value=0, value=1, step=500)
-    MTBF_print = col2.number_input("MTBF Peça Impressa FDM (horas)", min_value=0, value=1, step=500)
+    MTBF_conv = col1.number_input("MTBF Peça Original (horas)", min_value=100, value=8760, step=500)
+    MTBF_print = col2.number_input("MTBF Peça Impressa FDM (horas)", min_value=100, value=4380, step=500)
     
     st.subheader("Parâmetros Logísticos (Lead Times)")
     col3, col4 = st.columns(2)
@@ -576,29 +579,31 @@ elif choice == menu[2]:
     Ch_ano = col9.number_input("Custo de Posse Anual (R$/Unidade)", min_value=0.0, value=96.0)
     
     st.subheader("Parâmetros de Otimização")
-    col10, col11 = st.columns(2)
+    col10, col11, col12 = st.columns(3) # <--- Três colunas agora
     R_PCT = col10.number_input("Risco Alvo para Teto S (%)", min_value=0.01, max_value=99.99, value=5.00)
     Anos_Simulacao = col11.number_input("Horizonte de Simulação (Anos)", min_value=1, value=5)
+    N_Maquinas = col12.number_input("Número de Máquinas (N)", min_value=1, value=10) # <--- Nova entrada
 
     botao_ma = st.button("Executar Simulação e Otimizar (s*, s, S)")
 
     if botao_ma:
-        with st.spinner("Gerando Cenários Estocásticos e Otimizando... Aguarde."):
+        with st.spinner("A gerar Cenários Estocásticos e Otimizar... Aguarde."):
             
-            # 1. Definindo as Taxas e Chutes Iniciais
+            # 1. Definindo as Taxas e o Chute Inicial de S
             risco = R_PCT / 100.0
             lambda_hora = 1.0 / MTBF_conv
             Ch_hora = Ch_ano / 8760.0
             Horizonte_T = int(Anos_Simulacao * 8760)
             
-            # Calcula o "S" (Target) baseado no risco durante o tempo de pedido normal (L_rep)
-            df_p, S_teto, m_val = calcular_poisson(lambda_hora, 1, L_rep, risco)
+            # O input N_Maquinas agora vai para a função de Poisson!
+            df_p, S_teto, m_val = calcular_poisson(lambda_hora, N_Maquinas, L_rep, risco)
             
             if S_teto <= 0:
-                S_teto = 1 # Garante pelo menos 1 peça como teto para permitir a grade funcionar
+                S_teto = 1 
             
             params = {
                 'Horizonte_T': Horizonte_T,
+                'N': N_Maquinas,  # <--- Passado para a simulação
                 'L_rep': L_rep,
                 'L_ef': L_ef,
                 'MTBF_conv': MTBF_conv,
@@ -628,6 +633,6 @@ elif choice == menu[2]:
         st.markdown("### Performance Projetada da Política")
         p1, p2 = st.columns(2)
         p1.metric(label=f"Custo Médio Operacional Estimado (por Ano)", value=f"R$ {custo_medio_anual:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-        p2.metric(label="Disponibilidade da Máquina (KPI)", value=f"{disponibilidade * 100:.3f}%")
+        p2.metric(label="Disponibilidade da Fábrica (KPI)", value=f"{disponibilidade * 100:.3f}%")
         
-        st.info(f"**Nota Técnica:** O algoritmo realizou varreduras iterando horas em um horizonte total de **{Horizonte_T} horas** modelando quebras através de Distribuições Exponenciais independentes (Dual-Sourcing FDM).")
+        st.info(f"**Nota Técnica:** O algoritmo realizou varreduras iterando num horizonte de **{Horizonte_T} horas**. O modelo integra a quantidade de **{N_Maquinas} máquinas** somando a taxa de falha de cada ativo independente para refletir a alta procura de sobressalentes.")
