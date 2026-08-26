@@ -834,7 +834,7 @@ elif choice == menu[2]:
 
         st.success("Otimização Concluída!")
         
-        st.info(f" **Peças Impressas por Ciclo de Reposição:** {p['media_impressa_por_ciclo']:.2f} peças)")
+        st.info(f" **Peças Impressas por Ciclo de Reposição:** {p['media_impressa_por_ciclo']:.2f} peças")
 
         st.markdown("### Política Recomendada (s*, s, S)")
         rc1, rc2, rc3 = st.columns(3)
