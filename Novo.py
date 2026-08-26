@@ -355,7 +355,7 @@ def simular_politica_dual(s_star, s, S, params):
 
         # 2. Evento: Chegada do Pedido Convencional
         if t == Tempo_Chegada_Convencional:
-            It += Ot
+            It = S  # Define o estoque de peças normais diretamente para o teto S
             Ot = 0
             Tempo_Chegada_Convencional = float('inf')
             Jt = 0
@@ -493,14 +493,14 @@ def simular_politica_dual_com_historico(s_star, s, S, params):
 
         # Chegada do Pedido Convencional
         if t == Tempo_Chegada_Convencional:
-            qtd_chegada_orig = Ot
-            It += Ot
+            qtd_chegada_orig = S - It
+            It = S  # Define o estoque de peças normais diretamente para o teto S
             Ot = 0
             Tempo_Chegada_Convencional = float('inf')
             Jt = 0
             Tempo_Chegada_Impressao = float('inf')
             impressas_ciclo_atual = 0
-            evento_descricao.append(f"Chegada Lote Regular ({qtd_chegada_orig} un)")
+            evento_descricao.append(f"Chegada Lote Regular (Estoque restaurado para S={S})")
             
             while Bt > 0 and It > 0:
                 Bt -= 1
@@ -769,20 +769,18 @@ elif choice == menu[2]:
     Anos_Simulacao = col11.number_input("Horizonte de Simulação (Anos)", min_value=1, value=5)
     N_Maquinas = col12.number_input("Número de Máquinas (N)", min_value=1, value=10)
 
-    # Cálculo do Lote Máximo Recomendado de Impressão durante o Lead Time L_rep
-    lambda_hora = 1.0 / MTBF_conv
-    m_leadtime = lambda_hora * N_Maquinas * L_rep
-    Q_3D_calculado = int(np.ceil(poisson.ppf(1 - (R_PCT / 100.0), m_leadtime)))
-    if Q_3D_calculado < 1:
-        Q_3D_calculado = 1
-
-    st.info(f"💡 **Cálculo Analítico de Cobertura MA:** A quantidade de peças 3D para cobrir o Lead Time com Risco {R_PCT}% é de **{Q_3D_calculado} peças** por ciclo de reposição.")
-
     botao_ma = st.button("Executar Simulação e Otimizar (s*, s, S)")
 
     if botao_ma:
         with st.spinner("A otimizar gatilhos e simular fila de impressão contínua..."):
             
+            # Cálculo do Lote Máximo Recomendado executado após o clique
+            lambda_hora = 1.0 / MTBF_conv
+            m_leadtime = lambda_hora * N_Maquinas * L_rep
+            Q_3D_calculado = int(np.ceil(poisson.ppf(1 - (R_PCT / 100.0), m_leadtime)))
+            if Q_3D_calculado < 1:
+                Q_3D_calculado = 1
+
             risco = R_PCT / 100.0
             Ch_hora = Ch_ano / 8760.0
             Horizonte_T = int(Anos_Simulacao * 8760)
@@ -837,25 +835,14 @@ elif choice == menu[2]:
 
         st.success("Otimização Concluída!")
         
+        # Exibição direta do resultado de peças impressas por ciclo
+        st.info(f"🖨️ **Peças Impressas por Ciclo de Reposição:** {p['media_impressa_por_ciclo']:.2f} peças (Lote máximo recomendado: {p['Q_3D_calculado']} peças)")
+
         st.markdown("### Política Recomendada (s*, s, S)")
         rc1, rc2, rc3 = st.columns(3)
         rc1.metric(label="Gatilho de Impressão (s*)", value=p['s_star'], delta="Preventivo/Emergência", delta_color="off")
         rc2.metric(label="Ponto de Encomenda Regular (s)", value=p['s'], delta="Pedido ao Fornecedor", delta_color="off")
         rc3.metric(label="Teto de Inventário (S)", value=p['S'], delta="Nível Alvo", delta_color="off")
-        
-        st.divider()
-        st.markdown("### Dimensionamento Exato de Impressão 3D (Até o Ressuprimento)")
-        q1, q2 = st.columns(2)
-        q1.metric(
-            label="Lote Recomendado de Peças Impressas (Q3D Alvo)",
-            value=f"{p['Q_3D_calculado']} peças / ciclo",
-            help="Quantidade exata de peças que a impressora deve fabricar em sequência para garantir proteção durante o lead time de reposição."
-        )
-        q2.metric(
-            label="Média Efetiva Consumida/Impressa por Ciclo",
-            value=f"{p['media_impressa_por_ciclo']:.2f} peças / ciclo",
-            help="Média real observada de impressões acionadas em cada janela de ressuprimento."
-        )
 
         st.divider()
         st.markdown("### Performance Projetada da Política")
