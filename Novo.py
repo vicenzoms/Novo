@@ -355,7 +355,7 @@ def simular_politica_dual(s_star, s, S, params):
 
         # 2. Evento: Chegada do Pedido Convencional
         if t == Tempo_Chegada_Convencional:
-            It = S  # Restaura o estoque de peças originais completamente para o teto S
+            It = S  # Define o estoque de peças normais diretamente para o teto S
             Ot = 0
             Tempo_Chegada_Convencional = float('inf')
             Jt = 0
@@ -494,7 +494,7 @@ def simular_politica_dual_com_historico(s_star, s, S, params):
         # Chegada do Pedido Convencional
         if t == Tempo_Chegada_Convencional:
             qtd_chegada_orig = S - It
-            It = S  # Restaura o estoque de peças originais completamente para o teto S
+            It = S  # Define o estoque de peças normais diretamente para o teto S
             Ot = 0
             Tempo_Chegada_Convencional = float('inf')
             Jt = 0
@@ -774,6 +774,7 @@ elif choice == menu[2]:
     if botao_ma:
         with st.spinner("A otimizar gatilhos e simular fila de impressão contínua..."):
             
+            # Cálculo do Lote Máximo Recomendado executado após o clique
             lambda_hora = 1.0 / MTBF_conv
             m_leadtime = lambda_hora * N_Maquinas * L_rep
             Q_3D_calculado = int(np.ceil(poisson.ppf(1 - (R_PCT / 100.0), m_leadtime)))
@@ -834,6 +835,7 @@ elif choice == menu[2]:
 
         st.success("Otimização Concluída!")
         
+        # Exibição direta do resultado de peças impressas por ciclo
         st.info(f"🖨️ **Peças Impressas por Ciclo de Reposição:** {p['media_impressa_por_ciclo']:.2f} peças (Lote máximo recomendado: {p['Q_3D_calculado']} peças)")
 
         st.markdown("### Política Recomendada (s*, s, S)")
