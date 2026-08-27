@@ -473,7 +473,7 @@ def simular_politica_dual_com_historico(s_star, s, S, params):
             Pt += 1
             qtd_chegada_3d = 1
             impressas_ciclo_atual += 1
-            evento_descricao.append(f"Peça 3D Concluída ({impressas_ciclo_atual}/{Q_3D_lote})")
+            evento_descricao.append(f"Peça 3D Concluída ({impressas_ciclo_atual})")
             
             if Bt > 0:
                 Bt -= 1
@@ -780,6 +780,9 @@ elif choice == menu[2]:
             Q_3D_calculado = int(np.ceil(poisson.ppf(1 - (R_PCT / 100.0), m_leadtime)))
             if Q_3D_calculado < 1:
                 Q_3D_calculado = 1
+
+            # REMOÇÃO DO LIMITE DE PEÇAS IMPRESSAS
+            Q_3D_calculado = float('inf')
 
             risco = R_PCT / 100.0
             Ch_hora = Ch_ano / 8760.0
