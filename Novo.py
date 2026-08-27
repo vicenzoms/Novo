@@ -836,7 +836,7 @@ elif choice == menu[2]:
         st.success("Otimização Concluída!")
         
         # Exibição direta do resultado de peças impressas por ciclo
-        st.info(f"🖨️ **Peças Impressas por Ciclo de Reposição:** {p['media_impressa_por_ciclo']:.2f} peças (Lote máximo recomendado: {p['Q_3D_calculado']} peças)")
+        st.info(f" **Peças Impressas por Ciclo de Reposição:** {p['media_impressa_por_ciclo']:.2f} peças (Lote máximo recomendado: {p['Q_3D_calculado']} peças)")
 
         st.markdown("### Política Recomendada (s*, s, S)")
         rc1, rc2, rc3 = st.columns(3)
@@ -853,7 +853,7 @@ elif choice == menu[2]:
 
         # Visualização Gráfica do Fluxo de Peças 3D e Estoque Físico
         st.divider()
-        st.markdown("### 📊 Trajetória do Estoque Físico, Reservas 3D e Ativação em Sequência")
+        st.markdown("###  Trajetória do Estoque Físico, Reservas 3D e Ativação em Sequência")
         
         max_horas = p['Horizonte_T']
         janela_horas = st.slider(
@@ -963,6 +963,6 @@ elif choice == menu[2]:
 
         st.plotly_chart(fig, use_container_width=True)
 
-        st.markdown("### 📋 Diário de Eventos do Período Selecionado")
+        st.markdown("###  Diário de Eventos do Período Selecionado")
         df_ev_sub = df_ev[(df_ev['Tempo_Hora'] >= janela_horas[0]) & (df_ev['Tempo_Hora'] <= janela_horas[1])]
         st.dataframe(df_ev_sub, use_container_width=True, hide_index=True)
