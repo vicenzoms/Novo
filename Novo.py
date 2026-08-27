@@ -344,8 +344,11 @@ def simular_politica_dual(s_star, s, S, params):
                 Peca_Em_Uso = 'Impressa'
                 Tempo_Proxima_Falha = t + gerar_tempo_falha_sistema(Peca_Em_Uso, Bt)
             
-            # Reativa a impressora se o ressuprimento não chegou e não atingiu a meta do lote
-            if Ot > 0 and impressas_ciclo_atual < Q_3D_lote:
+            # Avalia o Estoque Físico Real Disponível
+            I_fisico = It + Pt - Bt
+            
+            # Reativa a impressora SOMENTE se o ressuprimento não chegou, o estoque físico ainda estiver crítico (<= s*) e não atingiu o lote máximo
+            if Ot > 0 and I_fisico <= s_star and impressas_ciclo_atual < Q_3D_lote:
                 Jt = 1
                 Tempo_Chegada_Impressao = t + L_ef
                 Custo_Total += C2
@@ -393,8 +396,9 @@ def simular_politica_dual(s_star, s, S, params):
 
         # 4. Avaliação dos Gatilhos
         IPt = It + Ot + Pt - Bt
+        I_fisico = It + Pt - Bt
         
-        # Gatilho Regular (s)
+        # Gatilho Regular (s) - Baseado na Posição Geral de Estoque
         if IPt <= s and Ot == 0:
             Q = S - IPt
             Ot = Q
@@ -403,8 +407,8 @@ def simular_politica_dual(s_star, s, S, params):
             Ciclos_Ressuprimento += 1
             impressas_ciclo_atual = 0
 
-        # Gatilho Preventivo/Emergencial MA (s*)
-        if IPt <= s_star and Jt == 0 and impressas_ciclo_atual < Q_3D_lote and Ot > 0:
+        # Gatilho Preventivo/Emergencial MA (s*) - Baseado no ESTOQUE FÍSICO REAL em prateleira
+        if I_fisico <= s_star and Jt == 0 and impressas_ciclo_atual < Q_3D_lote and Ot > 0:
             Jt = 1
             Tempo_Chegada_Impressao = t + L_ef
             Custo_Total += C2
@@ -483,10 +487,11 @@ def simular_politica_dual_com_historico(s_star, s, S, params):
                 Tempo_Proxima_Falha = t + gerar_tempo_falha_sistema(Peca_Em_Uso, Bt)
                 evento_descricao.append("Peça 3D Colocada em Uso Imediato")
             
-            if Ot > 0 and impressas_ciclo_atual < Q_3D_lote:
+            I_fisico = It + Pt - Bt
+            if Ot > 0 and I_fisico <= s_star and impressas_ciclo_atual < Q_3D_lote:
                 Jt = 1
                 Tempo_Chegada_Impressao = t + L_ef
-                evento_descricao.append("Fila 3D: Nova impressão iniciada em sequência")
+                evento_descricao.append("Fila 3D: Estoque físico continua baixo; impressora ativada para mais 1 peça")
             else:
                 Jt = 0
                 Tempo_Chegada_Impressao = float('inf')
@@ -539,6 +544,7 @@ def simular_politica_dual_com_historico(s_star, s, S, params):
 
         # Avaliação dos Gatilhos
         IPt = It + Ot + Pt - Bt
+        I_fisico = It + Pt - Bt
         
         if IPt <= s and Ot == 0:
             Q = S - IPt
@@ -547,10 +553,10 @@ def simular_politica_dual_com_historico(s_star, s, S, params):
             impressas_ciclo_atual = 0
             evento_descricao.append(f"Gatilho s Ativado (Pedido Regular Q={Q})")
 
-        if IPt <= s_star and Jt == 0 and impressas_ciclo_atual < Q_3D_lote and Ot > 0:
+        if I_fisico <= s_star and Jt == 0 and impressas_ciclo_atual < Q_3D_lote and Ot > 0:
             Jt = 1
             Tempo_Chegada_Impressao = t + L_ef
-            evento_descricao.append(f"Gatilho Preventivo s* Ativado (Disparo 3D)")
+            evento_descricao.append(f"Gatilho Emergencial s* Ativado (Disparo 3D por estoque físico baixo)")
 
         historico.append({
             'Tempo_Hora': t,
@@ -807,13 +813,8 @@ elif choice == menu[2]:
             melhor_s_star, melhor_s, melhor_custo_total, disponibilidade, total_impressas, total_ciclos = otimizar_gatilhos_grid(S_teto, params)
             
             custo_medio_anual = melhor_custo_total / Anos_Simulacao
-            
-            # -------------------------------------------------------------
-            # AS ALTERAÇÕES FORAM APLICADAS AQUI:
-            # -------------------------------------------------------------
             impressas_por_ano = int(round(total_impressas / Anos_Simulacao))
             media_impressa_por_ciclo = int(round(total_impressas / max(1, total_ciclos)))
-            # -------------------------------------------------------------
 
             df_hist, df_ev = simular_politica_dual_com_historico(melhor_s_star, melhor_s, S_teto, params)
 
@@ -839,9 +840,6 @@ elif choice == menu[2]:
 
         st.success("Otimização Concluída!")
         
-        # -------------------------------------------------------------
-        # AS ALTERAÇÕES FORAM APLICADAS AQUI (.2f removido):
-        # -------------------------------------------------------------
         st.info(f"🖨️ **Peças Impressas por Ciclo de Reposição:** {p['media_impressa_por_ciclo']} peças (Lote máximo recomendado: {p['Q_3D_calculado']} peças)")
 
         st.markdown("### Política Recomendada (s*, s, S)")
@@ -855,10 +853,6 @@ elif choice == menu[2]:
         p1, p2, p3 = st.columns(3)
         p1.metric(label="Custo Médio Operacional (por Ano)", value=f"R$ {p['custo_medio_anual']:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
         p2.metric(label="Disponibilidade da Fábrica (KPI)", value=f"{p['disponibilidade'] * 100:.3f}%")
-        
-        # -------------------------------------------------------------
-        # AS ALTERAÇÕES FORAM APLICADAS AQUI (.2f removido):
-        # -------------------------------------------------------------
         p3.metric(label="Média de Peças Impressas por Ano", value=f"{p['impressas_por_ano']} peças/ano")
 
         # Visualização Gráfica do Fluxo de Peças 3D e Estoque Físico
