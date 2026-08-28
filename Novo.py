@@ -836,7 +836,7 @@ elif choice == menu[2]:
         st.success("Otimização Concluída!")
         
         # Exibição direta do resultado de peças impressas por ciclo
-        st.info(f" **Peças Impressas por Ciclo de Reposição:** {p['media_impressa_por_ciclo']:.2f} peças (Lote máximo recomendado: {p['Q_3D_calculado']} peças)")
+    
 
         st.markdown("### Política Recomendada (s*, s, S)")
         rc1, rc2, rc3 = st.columns(3)
