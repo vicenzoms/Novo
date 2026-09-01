@@ -355,7 +355,7 @@ def simular_politica_dual(s_star, s, S, params):
 
         # 2. Evento: Chegada do Pedido Convencional
         if t == Tempo_Chegada_Convencional:
-            It = S  # Define o estoque de peças normais diretamente para o teto S
+            It += Ot  # CORREÇÃO CRÍTICA: Soma as peças ao estoque, em vez de sobreescrever o teto mágico (It=S)
             Ot = 0
             Tempo_Chegada_Convencional = float('inf')
             Jt = 0
@@ -493,14 +493,14 @@ def simular_politica_dual_com_historico(s_star, s, S, params):
 
         # Chegada do Pedido Convencional
         if t == Tempo_Chegada_Convencional:
-            qtd_chegada_orig = S - It
-            It = S  # Define o estoque de peças normais diretamente para o teto S
+            qtd_chegada_orig = Ot
+            It += Ot  # CORREÇÃO CRÍTICA APLICADA NO DIÁRIO TAMBÉM
             Ot = 0
             Tempo_Chegada_Convencional = float('inf')
             Jt = 0
             Tempo_Chegada_Impressao = float('inf')
             impressas_ciclo_atual = 0
-            evento_descricao.append(f"Chegada Lote Regular (Estoque restaurado para S={S})")
+            evento_descricao.append(f"Chegada Lote Regular (Q={qtd_chegada_orig}, Estoque atualizado para {It})")
             
             while Bt > 0 and It > 0:
                 Bt -= 1
@@ -589,6 +589,9 @@ def otimizar_gatilhos_grid(S, params):
     
     limite_s = max(1, S)
     
+    # Define semente fixa para estabilidade nos testes
+    np.random.seed(42)
+    
     for s in range(0, limite_s):
         for s_star in range(0, s + 1):
             
@@ -596,7 +599,9 @@ def otimizar_gatilhos_grid(S, params):
             disps_parciais = []
             impressas_parciais = []
             ciclos_parciais = []
-            for _ in range(3):
+            
+            # CORREÇÃO ESTATÍSTICA: Replicações aumentadas para eliminar a anomalia visual na tabela
+            for _ in range(20):
                 c, d, p, n_ciclos = simular_politica_dual(s_star, s, S, params)
                 custos_parciais.append(c)
                 disps_parciais.append(d)
@@ -835,9 +840,6 @@ elif choice == menu[2]:
 
         st.success("Otimização Concluída!")
         
-        # Exibição direta do resultado de peças impressas por ciclo
-    
-
         st.markdown("### Política Recomendada (s*, s, S)")
         rc1, rc2, rc3 = st.columns(3)
         rc1.metric(label="Gatilho de Impressão (s*)", value=p['s_star'], delta="Preventivo/Emergência", delta_color="off")
@@ -950,19 +952,26 @@ elif choice == menu[2]:
             row=2, col=1
         )
 
+        # CORREÇÃO GRÁFICA PARA ARTIGOS: Fundo branco, fontes pretas, estilo 300 DPI
         fig.update_layout(
             height=650,
-            title_text="Simulação Operacional de Fluxo de Peças e Fila Contínua MA",
+            title_text="Figura 1: Dinâmica temporal dos níveis de estoque original (It), estoque de emergência (Pt) e disparos de gatilhos (s, s*) obtida via simulação estocástica.",
             hovermode="x unified",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            font=dict(color='black')
         )
-
-        fig.update_xaxes(title_text="Tempo (Horas)", row=2, col=1)
-        fig.update_yaxes(title_text="Peças Originais", row=1, col=1)
-        fig.update_yaxes(title_text="Peças 3D em Reserva", row=2, col=1)
+        
+        fig.update_xaxes(title_text="Tempo (Horas)", row=2, col=1, showline=True, linewidth=1, linecolor='black', gridcolor='lightgray')
+        fig.update_xaxes(showline=True, linewidth=1, linecolor='black', gridcolor='lightgray', row=1, col=1)
+        fig.update_yaxes(title_text="Peças Originais", row=1, col=1, showline=True, linewidth=1, linecolor='black', gridcolor='lightgray')
+        fig.update_yaxes(title_text="Peças 3D em Reserva", row=2, col=1, showline=True, linewidth=1, linecolor='black', gridcolor='lightgray')
 
         st.plotly_chart(fig, use_container_width=True)
 
         st.markdown("###  Diário de Eventos do Período Selecionado")
         df_ev_sub = df_ev[(df_ev['Tempo_Hora'] >= janela_horas[0]) & (df_ev['Tempo_Hora'] <= janela_horas[1])]
         st.dataframe(df_ev_sub, use_container_width=True, hide_index=True)
+
+      
