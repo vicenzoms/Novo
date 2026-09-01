@@ -282,10 +282,9 @@ def exibir_resumo_streamlit(df, x_alvo, titulo, texto_destaque="Quantidade Recom
     st.dataframe(resumo, use_container_width=True, hide_index=True)
 
 
-# --- SIMULAÇÃO DUAL COM IMPRESSÃO EM FILA CONTINUA ---
+# --- SIMULAÇÃO DUAL COM FILA CONTÍNUA E MÚLTIPLOS PEDIDOS ---
 
 def simular_politica_dual(s_star, s, S, params):
-    """Executa a simulação horária com produção contínua de peças 3D durante o lead time."""
     Horizonte_T = params['Horizonte_T']
     N = params['N']
     L_rep = params['L_rep']
@@ -303,21 +302,19 @@ def simular_politica_dual(s_star, s, S, params):
         ativas = N - maquinas_paradas
         if ativas <= 0:
             return float('inf')
-        
         if peca_uso == 'Impressa':
             ativas_originais = max(0, ativas - 1)
             taxa_total = (ativas_originais / MTBF_conv) + (1.0 / MTBF_print)
         else:
             taxa_total = ativas / MTBF_conv
-            
         mtbf_equivalente = 1.0 / taxa_total
         return max(1, int(np.random.exponential(mtbf_equivalente)))
 
     It = S
     Bt = 0
     Ot = 0
-    Pt = 0  # Quantidade de peças impressas disponíveis em estoque 3D
-    Jt = 0  # Status da impressora (0: livre, 1: imprimindo)
+    Pt = 0  
+    Jt = 0  
     impressas_ciclo_atual = 0
     Peca_Em_Uso = 'Original'
     Custo_Total = 0
@@ -325,26 +322,24 @@ def simular_politica_dual(s_star, s, S, params):
     Pecas_Impressas_Total = 0
     Ciclos_Ressuprimento = 0
 
+    pedidos_convencionais = []  # CORREÇÃO: Fila dinâmica para permitir múltiplos pedidos simultâneos
     Tempo_Proxima_Falha = gerar_tempo_falha_sistema(Peca_Em_Uso, Bt)
-    Tempo_Chegada_Convencional = float('inf')
     Tempo_Chegada_Impressao = float('inf')
 
     for t in range(1, Horizonte_T + 1):
         
-        # 1. Evento: Conclusão da Impressão 3D
+        # 1. Conclusão da Impressão 3D
         if t == Tempo_Chegada_Impressao:
             Pt += 1
             Pecas_Impressas_Total += 1
             impressas_ciclo_atual += 1
             
-            # Se houver máquina parada, instala imediatamente a peça 3D recém-impressa
             if Bt > 0:
                 Bt -= 1
                 Pt -= 1
                 Peca_Em_Uso = 'Impressa'
                 Tempo_Proxima_Falha = t + gerar_tempo_falha_sistema(Peca_Em_Uso, Bt)
             
-            # Reativa a impressora se o ressuprimento não chegou e não atingiu a meta do lote
             if Ot > 0 and impressas_ciclo_atual < Q_3D_lote:
                 Jt = 1
                 Tempo_Chegada_Impressao = t + L_ef
@@ -353,11 +348,14 @@ def simular_politica_dual(s_star, s, S, params):
                 Jt = 0
                 Tempo_Chegada_Impressao = float('inf')
 
-        # 2. Evento: Chegada do Pedido Convencional
-        if t == Tempo_Chegada_Convencional:
-            It += Ot  # CORREÇÃO CRÍTICA: Soma as peças ao estoque, em vez de sobreescrever o teto mágico (It=S)
-            Ot = 0
-            Tempo_Chegada_Convencional = float('inf')
+        # 2. Chegada de Lotes Convencionais
+        chegaram_agora = [p for p in pedidos_convencionais if p['chegada'] == t]
+        if chegaram_agora:
+            for pedido in chegaram_agora:
+                It += pedido['qtd']
+                Ot -= pedido['qtd']
+            
+            pedidos_convencionais = [p for p in pedidos_convencionais if p['chegada'] != t]
             Jt = 0
             Tempo_Chegada_Impressao = float('inf')
             impressas_ciclo_atual = 0
@@ -373,11 +371,8 @@ def simular_politica_dual(s_star, s, S, params):
                 Peca_Em_Uso = 'Original'
                 Tempo_Proxima_Falha = t + gerar_tempo_falha_sistema(Peca_Em_Uso, Bt)
 
-        # 3. Evento: Chegada da Falha
+        # 3. Falha
         if t == Tempo_Proxima_Falha:
-            if Peca_Em_Uso == 'Impressa':
-                pass 
-                
             if It > 0:
                 It -= 1
                 Peca_Em_Uso = 'Original'
@@ -394,16 +389,16 @@ def simular_politica_dual(s_star, s, S, params):
         # 4. Avaliação dos Gatilhos
         IPt = It + Ot + Pt - Bt
         
-        # Gatilho Regular (s)
-        if IPt <= s and Ot == 0:
+        # Gatilho Regular (s) -> Agora sem a trava 'and Ot == 0'
+        if IPt <= s:
             Q = S - IPt
-            Ot = Q
-            Tempo_Chegada_Convencional = t + L_rep
+            pedidos_convencionais.append({'chegada': t + L_rep, 'qtd': Q})
+            Ot += Q
             Custo_Total += K + (Q * C1)
             Ciclos_Ressuprimento += 1
             impressas_ciclo_atual = 0
 
-        # Gatilho Preventivo/Emergencial MA (s*)
+        # Gatilho Preventivo MA (s*)
         if IPt <= s_star and Jt == 0 and impressas_ciclo_atual < Q_3D_lote and Ot > 0:
             Jt = 1
             Tempo_Chegada_Impressao = t + L_ef
@@ -418,44 +413,29 @@ def simular_politica_dual(s_star, s, S, params):
 
 
 def simular_politica_dual_com_historico(s_star, s, S, params):
-    """Gera o diário detalhado e histórico temporal com fila contínua de peças 3D."""
     Horizonte_T = params['Horizonte_T']
     N = params['N']
     L_rep = params['L_rep']
     L_ef = params['L_ef']
     MTBF_conv = params['MTBF_conv']
     MTBF_print = params['MTBF_print']
-    C1 = params['C1']
-    C2 = params['C2']
-    K = params['K']
-    Ch_hora = params['Ch_hora']
-    Cb = params['Cb']
     Q_3D_lote = params.get('Q_3D_lote', 1)
 
     def gerar_tempo_falha_sistema(peca_uso, maquinas_paradas):
         ativas = N - maquinas_paradas
-        if ativas <= 0:
-            return float('inf')
-        
+        if ativas <= 0: return float('inf')
         if peca_uso == 'Impressa':
-            ativas_originais = max(0, ativas - 1)
-            taxa_total = (ativas_originais / MTBF_conv) + (1.0 / MTBF_print)
+            taxa_total = (max(0, ativas - 1) / MTBF_conv) + (1.0 / MTBF_print)
         else:
             taxa_total = ativas / MTBF_conv
-            
-        mtbf_equivalente = 1.0 / taxa_total
-        return max(1, int(np.random.exponential(mtbf_equivalente)))
+        return max(1, int(np.random.exponential(1.0 / taxa_total)))
 
-    It = S
-    Bt = 0
-    Ot = 0
-    Pt = 0
-    Jt = 0
+    It, Bt, Ot, Pt, Jt = S, 0, 0, 0, 0
     impressas_ciclo_atual = 0
     Peca_Em_Uso = 'Original'
 
+    pedidos_convencionais = []
     Tempo_Proxima_Falha = gerar_tempo_falha_sistema(Peca_Em_Uso, Bt)
-    Tempo_Chegada_Convencional = float('inf')
     Tempo_Chegada_Impressao = float('inf')
 
     historico = []
@@ -463,60 +443,54 @@ def simular_politica_dual_com_historico(s_star, s, S, params):
 
     for t in range(1, Horizonte_T + 1):
         evento_descricao = []
-        qtd_chegada_orig = 0
-        qtd_chegada_3d = 0
-        qtd_usada_orig = 0
-        qtd_usada_3d = 0
+        qtd_chegada_orig = qtd_chegada_3d = qtd_usada_orig = qtd_usada_3d = 0
 
-        # Conclusão da Impressão 3D
         if t == Tempo_Chegada_Impressao:
             Pt += 1
             qtd_chegada_3d = 1
             impressas_ciclo_atual += 1
             evento_descricao.append(f"Peça 3D Concluída ({impressas_ciclo_atual}/{Q_3D_lote})")
-            
             if Bt > 0:
                 Bt -= 1
                 Pt -= 1
                 Peca_Em_Uso = 'Impressa'
                 qtd_usada_3d = 1
                 Tempo_Proxima_Falha = t + gerar_tempo_falha_sistema(Peca_Em_Uso, Bt)
-                evento_descricao.append("Peça 3D Colocada em Uso Imediato")
+                evento_descricao.append("Peça 3D em Uso Imediato")
             
             if Ot > 0 and impressas_ciclo_atual < Q_3D_lote:
                 Jt = 1
                 Tempo_Chegada_Impressao = t + L_ef
-                evento_descricao.append("Fila 3D: Nova impressão iniciada em sequência")
             else:
                 Jt = 0
                 Tempo_Chegada_Impressao = float('inf')
 
-        # Chegada do Pedido Convencional
-        if t == Tempo_Chegada_Convencional:
-            qtd_chegada_orig = Ot
-            It += Ot  # CORREÇÃO CRÍTICA APLICADA NO DIÁRIO TAMBÉM
-            Ot = 0
-            Tempo_Chegada_Convencional = float('inf')
+        chegaram_agora = [p for p in pedidos_convencionais if p['chegada'] == t]
+        if chegaram_agora:
+            for pedido in chegaram_agora:
+                It += pedido['qtd']
+                Ot -= pedido['qtd']
+                qtd_chegada_orig += pedido['qtd']
+                evento_descricao.append(f"Chegada Lote Regular (Q={pedido['qtd']})")
+            
+            pedidos_convencionais = [p for p in pedidos_convencionais if p['chegada'] != t]
             Jt = 0
             Tempo_Chegada_Impressao = float('inf')
             impressas_ciclo_atual = 0
-            evento_descricao.append(f"Chegada Lote Regular (Q={qtd_chegada_orig}, Estoque atualizado para {It})")
             
             while Bt > 0 and It > 0:
                 Bt -= 1
                 It -= 1
-                Peca_Em_Uso = 'Original'
                 qtd_usada_orig += 1
+                Peca_Em_Uso = 'Original'
                 Tempo_Proxima_Falha = t + gerar_tempo_falha_sistema(Peca_Em_Uso, Bt)
                 
             if Peca_Em_Uso == 'Impressa' and It > 0:
                 It -= 1
-                Peca_Em_Uso = 'Original'
                 qtd_usada_orig += 1
+                Peca_Em_Uso = 'Original'
                 Tempo_Proxima_Falha = t + gerar_tempo_falha_sistema(Peca_Em_Uso, Bt)
-                evento_descricao.append("Peça 3D em uso substituída por Original")
 
-        # Chegada da Falha
         if t == Tempo_Proxima_Falha:
             evento_descricao.append("Falha no Componente")
             if It > 0:
@@ -524,54 +498,42 @@ def simular_politica_dual_com_historico(s_star, s, S, params):
                 qtd_usada_orig += 1
                 Peca_Em_Uso = 'Original'
                 Tempo_Proxima_Falha = t + gerar_tempo_falha_sistema(Peca_Em_Uso, Bt)
-                evento_descricao.append("Reposição por Peça Original do Estoque")
             elif Pt > 0:
                 Pt -= 1
                 qtd_usada_3d += 1
                 Peca_Em_Uso = 'Impressa'
                 Tempo_Proxima_Falha = t + gerar_tempo_falha_sistema(Peca_Em_Uso, Bt)
-                evento_descricao.append("Reposição por Peça 3D do Estoque Reservado")
             else:
                 Bt += 1
                 Peca_Em_Uso = 'Nenhuma' if Bt == N else 'Original'
                 Tempo_Proxima_Falha = t + gerar_tempo_falha_sistema(Peca_Em_Uso, Bt)
-                evento_descricao.append("Estoque Esgotado: Sistema entra em Backlog")
+                evento_descricao.append("Estoque Esgotado: Backlog")
 
-        # Avaliação dos Gatilhos
         IPt = It + Ot + Pt - Bt
         
-        if IPt <= s and Ot == 0:
+        if IPt <= s:
             Q = S - IPt
-            Ot = Q
-            Tempo_Chegada_Convencional = t + L_rep
+            pedidos_convencionais.append({'chegada': t + L_rep, 'qtd': Q})
+            Ot += Q
             impressas_ciclo_atual = 0
             evento_descricao.append(f"Gatilho s Ativado (Pedido Regular Q={Q})")
 
         if IPt <= s_star and Jt == 0 and impressas_ciclo_atual < Q_3D_lote and Ot > 0:
             Jt = 1
             Tempo_Chegada_Impressao = t + L_ef
-            evento_descricao.append(f"Gatilho Preventivo s* Ativado (Disparo 3D)")
+            evento_descricao.append(f"Gatilho s* Ativado (Disparo 3D)")
 
         historico.append({
-            'Tempo_Hora': t,
-            'Estoque_Original_It': It,
-            'Em_Transito_Ot': Ot,
-            'Estoque_3D_Pt': Pt,
-            'Impressao_Ativa_Jt': Jt,
-            'Backlog_Bt': Bt,
-            'Posicao_Estoque_IPt': IPt,
-            'Peca_Em_Uso': Peca_Em_Uso,
-            'Qtd_Chegada_Original': qtd_chegada_orig,
-            'Qtd_Chegada_3D': qtd_chegada_3d,
-            'Qtd_Usada_Original': qtd_usada_orig,
-            'Qtd_Usada_3D': qtd_usada_3d
+            'Tempo_Hora': t, 'Estoque_Original_It': It, 'Em_Transito_Ot': Ot,
+            'Estoque_3D_Pt': Pt, 'Impressao_Ativa_Jt': Jt, 'Backlog_Bt': Bt,
+            'Posicao_Estoque_IPt': IPt, 'Peca_Em_Uso': Peca_Em_Uso,
+            'Qtd_Chegada_Original': qtd_chegada_orig, 'Qtd_Chegada_3D': qtd_chegada_3d,
+            'Qtd_Usada_Original': qtd_usada_orig, 'Qtd_Usada_3D': qtd_usada_3d
         })
 
         if evento_descricao:
             eventos.append({
-                'Tempo_Hora': t,
-                'Estoque_Original': It,
-                'Estoque_3D': Pt,
+                'Tempo_Hora': t, 'Estoque_Original': It, 'Estoque_3D': Pt,
                 'Descricao': " | ".join(evento_descricao)
             })
 
@@ -579,18 +541,12 @@ def simular_politica_dual_com_historico(s_star, s, S, params):
 
 
 def otimizar_gatilhos_grid(S, params):
-    """Varre combinações de s e s* para encontrar os parâmetros ideais."""
     melhor_custo = float('inf')
-    melhor_s = 0
-    melhor_s_star = 0
-    melhor_disp = 0.0
-    melhor_impressas = 0.0
-    melhor_ciclos = 1
+    melhor_s, melhor_s_star = 0, 0
+    melhor_disp, melhor_impressas, melhor_ciclos = 0.0, 0.0, 1
     
     limite_s = max(1, S)
-    
-    # Define semente fixa para estabilidade nos testes
-    np.random.seed(42)
+    np.random.seed(42) 
     
     for s in range(0, limite_s):
         for s_star in range(0, s + 1):
@@ -600,8 +556,7 @@ def otimizar_gatilhos_grid(S, params):
             impressas_parciais = []
             ciclos_parciais = []
             
-            # CORREÇÃO ESTATÍSTICA: Replicações aumentadas para eliminar a anomalia visual na tabela
-            for _ in range(20):
+            for _ in range(20): 
                 c, d, p, n_ciclos = simular_politica_dual(s_star, s, S, params)
                 custos_parciais.append(c)
                 disps_parciais.append(d)
@@ -779,7 +734,6 @@ elif choice == menu[2]:
     if botao_ma:
         with st.spinner("A otimizar gatilhos e simular fila de impressão contínua..."):
             
-            # Cálculo do Lote Máximo Recomendado executado após o clique
             lambda_hora = 1.0 / MTBF_conv
             m_leadtime = lambda_hora * N_Maquinas * L_rep
             Q_3D_calculado = int(np.ceil(poisson.ppf(1 - (R_PCT / 100.0), m_leadtime)))
@@ -952,10 +906,9 @@ elif choice == menu[2]:
             row=2, col=1
         )
 
-        # CORREÇÃO GRÁFICA PARA ARTIGOS: Fundo branco, fontes pretas, estilo 300 DPI
         fig.update_layout(
             height=650,
-            title_text="Figura 1: Dinâmica temporal dos níveis de estoque original (It), estoque de emergência (Pt) e disparos de gatilhos (s, s*) obtida via simulação estocástica.",
+            title_text="Figura 1: Dinâmica temporal dos níveis de estoque original e gatilhos da política.",
             hovermode="x unified",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
             plot_bgcolor='white',
@@ -973,5 +926,3 @@ elif choice == menu[2]:
         st.markdown("###  Diário de Eventos do Período Selecionado")
         df_ev_sub = df_ev[(df_ev['Tempo_Hora'] >= janela_horas[0]) & (df_ev['Tempo_Hora'] <= janela_horas[1])]
         st.dataframe(df_ev_sub, use_container_width=True, hide_index=True)
-
-      
