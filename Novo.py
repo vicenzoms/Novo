@@ -518,43 +518,57 @@ def simular_politica_dual_com_historico(s_star, s, S, params):
     return pd.DataFrame(historico), pd.DataFrame(eventos)
 
 
-def otimizar_gatilhos_grid(S, params):
+def otimizar_gatilhos_grid(S_base, params):
+    """
+    Busca em grade para a política (s*, s, S).
+
+    Ajuste solicitado pelo orientador (Guia de Correções, Etapa 1.1):
+    o teto S deixa de ser mantido fixo no valor analítico (S_base) e passa a
+    ser testado também em S_base+1 e S_base+2, permitindo que o algoritmo
+    encontre o mínimo global real quando a penalidade de downtime é elevada
+    (ex.: Cenário I do teste de sensibilidade, onde S=6 deixava um pequeno
+    downtime residual que S=7 ou S=8 eliminariam a um custo total menor).
+    """
     melhor_custo = float('inf')
-    melhor_s, melhor_s_star = 0, 0
+    melhor_s, melhor_s_star, melhor_S_otimo = 0, 0, S_base
     melhor_disp, melhor_impressas, melhor_ciclos = 0.0, 0.0, 1
-    
-    limite_s = max(1, S)
-    np.random.seed(42) 
-    
-    for s in range(0, limite_s):
-        for s_star in range(0, s + 1):
-            
-            custos_parciais = []
-            disps_parciais = []
-            impressas_parciais = []
-            ciclos_parciais = []
-            
-            for _ in range(20): 
-                c, d, p, n_ciclos = simular_politica_dual(s_star, s, S, params)
-                custos_parciais.append(c)
-                disps_parciais.append(d)
-                impressas_parciais.append(p)
-                ciclos_parciais.append(n_ciclos)
-                
-            custo_medio = sum(custos_parciais) / len(custos_parciais)
-            disp_media = sum(disps_parciais) / len(disps_parciais)
-            impressas_media = sum(impressas_parciais) / len(impressas_parciais)
-            ciclos_medio = max(1, sum(ciclos_parciais) / len(ciclos_parciais))
-            
-            if custo_medio < melhor_custo:
-                melhor_custo = custo_medio
-                melhor_s = s
-                melhor_s_star = s_star
-                melhor_disp = disp_media
-                melhor_impressas = impressas_media
-                melhor_ciclos = ciclos_medio
-                
-    return melhor_s_star, melhor_s, melhor_custo, melhor_disp, melhor_impressas, melhor_ciclos
+
+    np.random.seed(42)
+
+    # Testa S variando do valor analítico até S_base + 2
+    for S_cand in range(S_base, S_base + 3):
+        limite_s = max(1, S_cand)
+        for s in range(0, limite_s):
+            for s_star in range(0, s + 1):
+
+                custos_parciais = []
+                disps_parciais = []
+                impressas_parciais = []
+                ciclos_parciais = []
+
+                # Aumentado para 50 replicações para estabilizar a variância
+                for _ in range(50):
+                    c, d, p, n_ciclos = simular_politica_dual(s_star, s, S_cand, params)
+                    custos_parciais.append(c)
+                    disps_parciais.append(d)
+                    impressas_parciais.append(p)
+                    ciclos_parciais.append(n_ciclos)
+
+                custo_medio = sum(custos_parciais) / len(custos_parciais)
+                disp_media = sum(disps_parciais) / len(disps_parciais)
+                impressas_media = sum(impressas_parciais) / len(impressas_parciais)
+                ciclos_medio = max(1, sum(ciclos_parciais) / len(ciclos_parciais))
+
+                if custo_medio < melhor_custo:
+                    melhor_custo = custo_medio
+                    melhor_s = s
+                    melhor_s_star = s_star
+                    melhor_S_otimo = S_cand
+                    melhor_disp = disp_media
+                    melhor_impressas = impressas_media
+                    melhor_ciclos = ciclos_medio
+
+    return melhor_s_star, melhor_s, melhor_S_otimo, melhor_custo, melhor_disp, melhor_impressas, melhor_ciclos
 
 
 # =====================================================================
@@ -742,20 +756,21 @@ elif choice == menu[2]:
                 'Q_3D_lote': Q_3D_calculado
             }
             
-            melhor_s_star, melhor_s, melhor_custo_total, disponibilidade, total_impressas, total_ciclos = otimizar_gatilhos_grid(S_teto, params)
+            melhor_s_star, melhor_s, melhor_S_otimo, melhor_custo_total, disponibilidade, total_impressas, total_ciclos = otimizar_gatilhos_grid(S_teto, params)
             
             custo_medio_anual = melhor_custo_total / Anos_Simulacao
             impressas_por_ano = total_impressas / Anos_Simulacao
             media_impressa_por_ciclo = total_impressas / max(1, total_ciclos)
 
-            df_hist, df_ev = simular_politica_dual_com_historico(melhor_s_star, melhor_s, S_teto, params)
+            df_hist, df_ev = simular_politica_dual_com_historico(melhor_s_star, melhor_s, melhor_S_otimo, params)
 
             st.session_state['df_hist'] = df_hist
             st.session_state['df_ev'] = df_ev
             st.session_state['ma_params'] = {
                 's_star': melhor_s_star,
                 's': melhor_s,
-                'S': S_teto,
+                'S': melhor_S_otimo,
+                'S_analitico': S_teto,
                 'custo_medio_anual': custo_medio_anual,
                 'disponibilidade': disponibilidade,
                 'total_impressas': total_impressas,
@@ -900,6 +915,19 @@ elif choice == menu[2]:
         fig.update_yaxes(title_text="Peças 3D em Reserva", row=2, col=1, showline=True, linewidth=1, linecolor='black', gridcolor='lightgray')
 
         st.plotly_chart(fig, use_container_width=True)
+
+        # Exportação em alta resolução para uso no Relatório Final (Guia de Correções, Etapa 4)
+        if st.button("Exportar Figura 1 em Alta Resolução (PNG)"):
+            try:
+                fig.update_layout(
+                    plot_bgcolor='white',
+                    paper_bgcolor='white',
+                    legend=dict(orientation="h", yanchor="bottom", y=1.08, xanchor="center", x=0.5)
+                )
+                fig.write_image("figura1_alta_res.png", scale=3, width=1200, height=700)
+                st.success("Figura exportada como 'figura1_alta_res.png' (fundo branco, sem sobreposição de legendas).")
+            except Exception as e:
+                st.error(f"Erro ao exportar (verifique se o pacote 'kaleido' está instalado): {e}")
 
         st.markdown("###  Diário de Eventos do Período Selecionado")
         df_ev_sub = df_ev[(df_ev['Tempo_Hora'] >= janela_horas[0]) & (df_ev['Tempo_Hora'] <= janela_horas[1])]
