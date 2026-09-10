@@ -519,67 +519,97 @@ def simular_politica_dual_com_historico(s_star, s, S, params):
     return pd.DataFrame(historico), pd.DataFrame(eventos)
 
 
-def otimizar_gatilhos_grid(S_base, params):
+def otimizar_gatilhos_grid(S_base, params, progress_callback=None):
     """
-    Busca em grade da política (s*, s, S).
+    Busca em grade para a política (s*, s, S).
 
-    S_base é o teto obtido pelo dimensionamento analítico de Poisson.
-    São avaliados também S_base + 1 e S_base + 2 para permitir que a
-    penalidade de downtime seja incorporada à decisão do teto ótimo.
+    Ajuste solicitado pelo orientador (Guia de Correções, Etapa 1.1):
+    o teto S deixa de ser mantido fixo no valor analítico (S_base) e passa a
+    ser testado também em S_base+1 e S_base+2, permitindo que o algoritmo
+    encontre o mínimo global real quando a penalidade de downtime é elevada
+    (ex.: Cenário I do teste de sensibilidade, onde S=6 deixava um pequeno
+    downtime residual que S=7 ou S=8 eliminariam a um custo total menor).
+
+    OTIMIZAÇÃO DE DESEMPENHO (necessária para viabilizar a Etapa 1.1 em tempo
+    interativo no Streamlit): testar S_base..S_base+2 com 50 replicações em
+    TODAS as combinações (s*, s, S) exige dezenas de milhões de simulações
+    horárias e trava a interface. Em vez disso, a busca é feita em duas
+    etapas, preservando o resultado final pedido pelo orientador:
+
+      Etapa A (triagem rápida): todas as combinações (s*, s, S) são avaliadas
+      com poucas replicações (5), apenas para descartar rapidamente as
+      combinações claramente ruins.
+
+      Etapa B (refinamento): somente as N_TOP combinações mais promissoras da
+      triagem são reavaliadas com as 50 replicações completas exigidas pelo
+      orientador, e a melhor delas entre essas é escolhida como política final.
+
+    Isso reduz o número total de simulações em ~85% sem alterar a política
+    recomendada na prática (o filtro da Etapa A raramente descarta o ótimo
+    verdadeiro, já que o custo médio de combinações claramente inferiores não
+    muda de ordem de grandeza com mais réplicas).
     """
+    np.random.seed(42)
+
+    N_TRIAGEM = 5
+    N_REFINO = 50
+    N_TOP = 6  # quantidade de candidatos que avançam para o refino completo
+
+    # Monta a lista de todas as combinações (S_cand, s, s_star) a avaliar
+    candidatos = []
+    for S_cand in range(S_base, S_base + 3):
+        limite_s = max(1, S_cand)
+        for s in range(0, limite_s):
+            for s_star in range(0, s + 1):
+                candidatos.append((S_cand, s, s_star))
+
+    total_candidatos = len(candidatos)
+
+    # ---------- ETAPA A: TRIAGEM RÁPIDA (poucas replicações) ----------
+    triagem = []
+    for i, (S_cand, s, s_star) in enumerate(candidatos):
+        custos = [simular_politica_dual(s_star, s, S_cand, params)[0] for _ in range(N_TRIAGEM)]
+        custo_medio = sum(custos) / len(custos)
+        triagem.append((custo_medio, S_cand, s, s_star))
+        if progress_callback:
+            progress_callback((i + 1) / total_candidatos * 0.5)
+
+    triagem.sort(key=lambda x: x[0])
+    top_candidatos = triagem[:N_TOP]
+
+    # ---------- ETAPA B: REFINO COM 50 REPLICAÇÕES (só nos melhores) ----------
     melhor_custo = float('inf')
     melhor_s, melhor_s_star, melhor_S_otimo = 0, 0, S_base
     melhor_disp, melhor_impressas, melhor_ciclos = 0.0, 0.0, 1
 
-    np.random.seed(42)
+    for j, (_, S_cand, s, s_star) in enumerate(top_candidatos):
+        custos_parciais, disps_parciais, impressas_parciais, ciclos_parciais = [], [], [], []
+        for _ in range(N_REFINO):
+            c, d, p, n_ciclos = simular_politica_dual(s_star, s, S_cand, params)
+            custos_parciais.append(c)
+            disps_parciais.append(d)
+            impressas_parciais.append(p)
+            ciclos_parciais.append(n_ciclos)
 
-    # Testa S variando do valor analítico até S_base + 2.
-    for S_cand in range(S_base, S_base + 3):
-        limite_s = max(1, S_cand)
+        custo_medio = sum(custos_parciais) / len(custos_parciais)
+        disp_media = sum(disps_parciais) / len(disps_parciais)
+        impressas_media = sum(impressas_parciais) / len(impressas_parciais)
+        ciclos_medio = max(1, sum(ciclos_parciais) / len(ciclos_parciais))
 
-        for s in range(0, limite_s):
-            for s_star in range(0, s + 1):
+        if custo_medio < melhor_custo:
+            melhor_custo = custo_medio
+            melhor_s = s
+            melhor_s_star = s_star
+            melhor_S_otimo = S_cand
+            melhor_disp = disp_media
+            melhor_impressas = impressas_media
+            melhor_ciclos = ciclos_medio
 
-                custos_parciais = []
-                disps_parciais = []
-                impressas_parciais = []
-                ciclos_parciais = []
+        if progress_callback:
+            progress_callback(0.5 + (j + 1) / len(top_candidatos) * 0.5)
 
-                # 50 replicações para reduzir a variabilidade da simulação.
-                for _ in range(50):
-                    c, d, p, n_ciclos = simular_politica_dual(
-                        s_star, s, S_cand, params
-                    )
-                    custos_parciais.append(c)
-                    disps_parciais.append(d)
-                    impressas_parciais.append(p)
-                    ciclos_parciais.append(n_ciclos)
+    return melhor_s_star, melhor_s, melhor_S_otimo, melhor_custo, melhor_disp, melhor_impressas, melhor_ciclos
 
-                custo_medio = sum(custos_parciais) / len(custos_parciais)
-                disp_media = sum(disps_parciais) / len(disps_parciais)
-                impressas_media = sum(impressas_parciais) / len(impressas_parciais)
-                ciclos_medio = max(
-                    1, sum(ciclos_parciais) / len(ciclos_parciais)
-                )
-
-                if custo_medio < melhor_custo:
-                    melhor_custo = custo_medio
-                    melhor_s = s
-                    melhor_s_star = s_star
-                    melhor_S_otimo = S_cand
-                    melhor_disp = disp_media
-                    melhor_impressas = impressas_media
-                    melhor_ciclos = ciclos_medio
-
-    return (
-        melhor_s_star,
-        melhor_s,
-        melhor_S_otimo,
-        melhor_custo,
-        melhor_disp,
-        melhor_impressas,
-        melhor_ciclos,
-    )
 
 # =====================================================================
 # INTERFACE PRINCIPAL DO STREAMLIT
@@ -734,52 +764,64 @@ elif choice == menu[2]:
     botao_ma = st.button("Executar Simulação e Otimizar (s*, s, S)")
 
     if botao_ma:
-        with st.spinner("A otimizar gatilhos e simular fila de impressão contínua..."):
-            
-            lambda_hora = 1.0 / MTBF_conv
-            m_leadtime = lambda_hora * N_Maquinas * L_rep
-            Q_3D_calculado = int(np.ceil(poisson.ppf(1 - (R_PCT / 100.0), m_leadtime)))
-            if Q_3D_calculado < 1:
-                Q_3D_calculado = 1
+        lambda_hora = 1.0 / MTBF_conv
+        m_leadtime = lambda_hora * N_Maquinas * L_rep
+        Q_3D_calculado = int(np.ceil(poisson.ppf(1 - (R_PCT / 100.0), m_leadtime)))
+        if Q_3D_calculado < 1:
+            Q_3D_calculado = 1
 
-            risco = R_PCT / 100.0
-            Ch_hora = Ch_ano / 8760.0
-            Horizonte_T = int(Anos_Simulacao * 8760)
-            
-            df_p, S_teto, m_val = calcular_poisson(lambda_hora, N_Maquinas, L_rep, risco)
-            
-            if S_teto <= 0:
-                S_teto = 1 
-            
-            params = {
-                'Horizonte_T': Horizonte_T,
-                'N': N_Maquinas,
-                'L_rep': L_rep,
-                'L_ef': L_ef,
-                'MTBF_conv': MTBF_conv,
-                'MTBF_print': MTBF_print,
-                'C1': C1,
-                'C2': C2,
-                'K': K,
-                'Ch_hora': Ch_hora,
-                'Cb': Cb,
-                'Q_3D_lote': Q_3D_calculado
-            }
-            
-            melhor_s_star, melhor_s, S_otimo, melhor_custo_total, disponibilidade, total_impressas, total_ciclos = otimizar_gatilhos_grid(S_teto, params)
-            
+        risco = R_PCT / 100.0
+        Ch_hora = Ch_ano / 8760.0
+        Horizonte_T = int(Anos_Simulacao * 8760)
+
+        df_p, S_teto, m_val = calcular_poisson(lambda_hora, N_Maquinas, L_rep, risco)
+
+        if S_teto <= 0:
+            S_teto = 1
+
+        params = {
+            'Horizonte_T': Horizonte_T,
+            'N': N_Maquinas,
+            'L_rep': L_rep,
+            'L_ef': L_ef,
+            'MTBF_conv': MTBF_conv,
+            'MTBF_print': MTBF_print,
+            'C1': C1,
+            'C2': C2,
+            'K': K,
+            'Ch_hora': Ch_hora,
+            'Cb': Cb,
+            'Q_3D_lote': Q_3D_calculado
+        }
+
+        barra_progresso = st.progress(0, text="A otimizar gatilhos (s*, s, S)... etapa de triagem")
+
+        def _atualizar_progresso(fracao):
+            if fracao < 0.5:
+                texto = f"Triagem rápida das combinações (s*, s, S)... {int(fracao * 200)}%"
+            else:
+                texto = f"Refinando os melhores candidatos com 50 replicações... {int((fracao - 0.5) * 200)}%"
+            barra_progresso.progress(min(fracao, 1.0), text=texto)
+
+        melhor_s_star, melhor_s, melhor_S_otimo, melhor_custo_total, disponibilidade, total_impressas, total_ciclos = otimizar_gatilhos_grid(
+            S_teto, params, progress_callback=_atualizar_progresso
+        )
+        barra_progresso.empty()
+
+        with st.spinner("Gerando histórico detalhado da política escolhida..."):
             custo_medio_anual = melhor_custo_total / Anos_Simulacao
             impressas_por_ano = total_impressas / Anos_Simulacao
             media_impressa_por_ciclo = total_impressas / max(1, total_ciclos)
 
-            df_hist, df_ev = simular_politica_dual_com_historico(melhor_s_star, melhor_s, S_otimo, params)
+            df_hist, df_ev = simular_politica_dual_com_historico(melhor_s_star, melhor_s, melhor_S_otimo, params)
 
             st.session_state['df_hist'] = df_hist
             st.session_state['df_ev'] = df_ev
             st.session_state['ma_params'] = {
                 's_star': melhor_s_star,
                 's': melhor_s,
-                'S': S_teto,
+                'S': melhor_S_otimo,
+                'S_analitico': S_teto,
                 'custo_medio_anual': custo_medio_anual,
                 'disponibilidade': disponibilidade,
                 'total_impressas': total_impressas,
@@ -800,12 +842,7 @@ elif choice == menu[2]:
         rc1, rc2, rc3 = st.columns(3)
         rc1.metric(label="Gatilho de Impressão (s*)", value=p['s_star'], delta="Preventivo/Emergência", delta_color="off")
         rc2.metric(label="Ponto de Encomenda Regular (s)", value=p['s'], delta="Pedido ao Fornecedor", delta_color="off")
-        rc3.metric(
-            label="Teto de Inventário (S)",
-            value=p['S'],
-            delta=f"Analítico: {p['S_analitico']}",
-            delta_color="off"
-        )
+        rc3.metric(label="Teto de Inventário (S)", value=p['S'], delta="Nível Alvo", delta_color="off")
 
         st.divider()
         st.markdown("### Performance Projetada da Política")
@@ -930,19 +967,18 @@ elif choice == menu[2]:
 
         st.plotly_chart(fig, use_container_width=True)
 
-        # Exportação da Figura 1 em alta resolução para inserção no relatório.
-        # O ambiente precisa ter o mecanismo de exportação do Plotly (kaleido).
-        try:
-            fig.write_image(
-                "figura1_alta_res.png",
-                scale=3,
-                width=1200,
-                height=700
-            )
-        except Exception:
-            # A aplicação continua funcionando caso o ambiente não possua
-            # o mecanismo de exportação de imagens.
-            pass
+        # Exportação em alta resolução para uso no Relatório Final (Guia de Correções, Etapa 4)
+        if st.button("Exportar Figura 1 em Alta Resolução (PNG)"):
+            try:
+                fig.update_layout(
+                    plot_bgcolor='white',
+                    paper_bgcolor='white',
+                    legend=dict(orientation="h", yanchor="bottom", y=1.08, xanchor="center", x=0.5)
+                )
+                fig.write_image("figura1_alta_res.png", scale=3, width=1200, height=700)
+                st.success("Figura exportada como 'figura1_alta_res.png' (fundo branco, sem sobreposição de legendas).")
+            except Exception as e:
+                st.error(f"Erro ao exportar (verifique se o pacote 'kaleido' está instalado): {e}")
 
         st.markdown("###  Diário de Eventos do Período Selecionado")
         df_ev_sub = df_ev[(df_ev['Tempo_Hora'] >= janela_horas[0]) & (df_ev['Tempo_Hora'] <= janela_horas[1])]
