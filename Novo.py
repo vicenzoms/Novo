@@ -890,9 +890,10 @@ elif choice == menu[2]:
 
         fig.update_layout(
             height=650,
-            title_text="Figura 1: Dinâmica temporal dos níveis de estoque original e gatilhos da política.",
+            title=None,
             hovermode="x unified",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="center", x=0.5),
+            margin=dict(t=50, b=40, l=60, r=40),
             plot_bgcolor='white',
             paper_bgcolor='white',
             font=dict(color='black')
