@@ -283,7 +283,6 @@ def exibir_resumo_streamlit(df, x_alvo, titulo, texto_destaque="Quantidade Recom
 
 
 # --- SIMULAÇÃO DUAL COM FILA CONTÍNUA E MÚLTIPLOS PEDIDOS ---
-
 def simular_politica_dual(s_star, s, S, params):
     Horizonte_T = params['Horizonte_T']
     N = params['N']
@@ -314,7 +313,6 @@ def simular_politica_dual(s_star, s, S, params):
     Tempo_Chegada_Impressao = float('inf')
 
     for t in range(1, Horizonte_T + 1):
-        # 1. Conclusão da Impressão
         if t == Tempo_Chegada_Impressao:
             Pecas_Impressas_Total += 1
             impressas_ciclo_atual += 1
@@ -333,7 +331,6 @@ def simular_politica_dual(s_star, s, S, params):
                 Jt = 0
                 Tempo_Chegada_Impressao = float('inf')
 
-        # 2. Chegada de Compras
         chegaram_agora = [p for p in pedidos_convencionais if p['chegada'] == t]
         if chegaram_agora:
             for pedido in chegaram_agora:
@@ -351,7 +348,6 @@ def simular_politica_dual(s_star, s, S, params):
                 It -= 1
             Tempo_Proxima_Falha = t + gerar_tempo_falha(U_3D, Bt)
 
-        # 3. Falha
         if t == Tempo_Proxima_Falha:
             ativas = N - Bt
             if ativas > 0:
@@ -360,7 +356,7 @@ def simular_politica_dual(s_star, s, S, params):
                 prob_orig = taxa_orig / (taxa_orig + taxa_3d)
                 
                 if np.random.rand() > prob_orig:
-                    U_3D -= 1  # 3D quebrou
+                    U_3D -= 1  
                     
                 if It > 0:
                     It -= 1
@@ -371,7 +367,6 @@ def simular_politica_dual(s_star, s, S, params):
                     Bt += 1
                 Tempo_Proxima_Falha = t + gerar_tempo_falha(U_3D, Bt)
 
-        # 4. Avaliação de Gatilhos
         IPt_orig = It + Ot - Bt - U_3D
         IPt_total = It + Ot + Pt - Bt - U_3D
 
@@ -525,7 +520,6 @@ def otimizar_gatilhos_grid(S_base, params):
     
     np.random.seed(42) 
     
-    # Testa S variando do valor analítico até S_base + 2
     for S_cand in range(S_base, S_base + 3):
         limite_s = max(1, S_cand)
         for s in range(0, limite_s):
@@ -536,7 +530,6 @@ def otimizar_gatilhos_grid(S_base, params):
                 impressas_parciais = []
                 ciclos_parciais = []
                 
-                # Aumentado para 50 replicações para estabilizar a variância
                 for _ in range(50): 
                     c, d, p, n_ciclos = simular_politica_dual(s_star, s, S_cand, params)
                     custos_parciais.append(c)
@@ -575,10 +568,10 @@ elif Path('logo.png').exists():
 
 st.markdown("<h2 style='text-align: center; color: #388E3C;'>Spare Parts Inventory Sizing System</h2>", unsafe_allow_html=True)
 
-menu = ["Analytical", "Optimizer", "Optimizer MA"]
+menu = ["Analitico", "Otimizador Não reparavel", "Otimizador MA", "Otimizador reparavel"]
 choice = st.sidebar.selectbox("Select here", menu)
 
-# --- MODO 1: ANALYTICAL ---
+# --- MODO 1: ANALÍTICO ---
 if choice == menu[0]:
     st.header(menu[0])
     st.subheader("Avaliação da Situação Atual do Sistema")
@@ -637,10 +630,10 @@ if choice == menu[0]:
                 st.warning("Aproximação pela Normal não recomendada.")
 
 
-# --- MODO 2: OPTIMIZER PADRÃO ---
+# --- MODO 2: OTIMIZADOR NÃO REPARÁVEL ---
 elif choice == menu[1]:
     st.header(menu[1])
-    st.subheader("Insert the parameter values below:")
+    st.subheader("Insira os valores dos parâmetros abaixo:")
     
     L = st.number_input("Lambda (taxa de falha):", min_value=0.0000, value=0.05, step=0.01, format="%.6f")
     N = st.number_input("Número de máquinas ativas (n):", min_value=1, value=10, step=1)
@@ -648,7 +641,7 @@ elif choice == menu[1]:
     R_PCT = st.number_input("Risco Alvo (%):", min_value=0.01, max_value=99.99, value=5.00, step=1.0, format="%.2f")
     custo_unitario = st.number_input("Custo Unitário por Peça (R$):", min_value=0.00, value=150.00, step=10.00, format="%.2f")
 
-    st.subheader("Click on button below to run this application:")    
+    st.subheader("Clique no botão abaixo para calcular o dimensionamento:")    
     botao = st.button("Calcular Dimensionamento")        
     
     if botao:
@@ -680,7 +673,7 @@ elif choice == menu[1]:
                 st.warning("Aproximação pela Normal não recomendada.")
 
 
-# --- MODO 3: OPTIMIZER MA (MANUFATURA ADITIVA) ---
+# --- MODO 3: OTIMIZADOR MA (MANUFATURA ADITIVA) ---
 elif choice == menu[2]:
     st.header(menu[2] + " - Simulação Dual-Sourcing com Fila Contínua MA")
     st.write("Dimensionamento otimizado de política (s*, s, S) com produção continuada de peças 3D durante o lead time de ressuprimento.")
@@ -715,7 +708,6 @@ elif choice == menu[2]:
 
     if botao_ma:
         with st.spinner("A otimizar gatilhos e simular fila de impressão contínua..."):
-            
             lambda_hora = 1.0 / MTBF_conv
             m_leadtime = lambda_hora * N_Maquinas * L_rep
             Q_3D_calculado = int(np.ceil(poisson.ppf(1 - (R_PCT / 100.0), m_leadtime)))
@@ -789,7 +781,6 @@ elif choice == menu[2]:
         p2.metric(label="Disponibilidade da Fábrica (KPI)", value=f"{p['disponibilidade'] * 100:.3f}%")
         p3.metric(label="Média de Peças Impressas por Ano", value=f"{p['impressas_por_ano']:.2f} peças/ano")
 
-        # Visualização Gráfica do Fluxo de Peças 3D e Estoque Físico
         st.divider()
         st.markdown("###  Trajetória do Estoque Físico, Reservas 3D e Ativação em Sequência")
         
@@ -817,100 +808,86 @@ elif choice == menu[2]:
             row_heights=[0.65, 0.35]
         )
 
-        # 1. Trajetória Estoque Original
-        fig.add_trace(
-            go.Scatter(
-                x=df_sub['Tempo_Hora'], y=df_sub['Estoque_Original_It'],
-                mode='lines', name='Estoque Original (It)',
-                line=dict(color='#2E7D32', width=2)
-            ),
-            row=1, col=1
-        )
-
-        fig.add_trace(
-            go.Scatter(
-                x=[janela_horas[0], janela_horas[1]], y=[p['S'], p['S']],
-                mode='lines', name=f"Teto S ({p['S']})", line=dict(color='gray', dash='dash')
-            ),
-            row=1, col=1
-        )
-
-        fig.add_trace(
-            go.Scatter(
-                x=[janela_horas[0], janela_horas[1]], y=[p['s'], p['s']],
-                mode='lines', name=f"Gatilho Regular s ({p['s']})", line=dict(color='orange', dash='dash')
-            ),
-            row=1, col=1
-        )
-
-        fig.add_trace(
-            go.Scatter(
-                x=[janela_horas[0], janela_horas[1]], y=[p['s_star'], p['s_star']],
-                mode='lines', name=f"Gatilho MA s* ({p['s_star']})", line=dict(color='red', dash='dash')
-            ),
-            row=1, col=1
-        )
-
-        fig.add_trace(
-            go.Scatter(
-                x=chegadas_orig['Tempo_Hora'], y=chegadas_orig['Estoque_Original_It'],
-                mode='markers', name='Chegada Pedido Regular',
-                marker=dict(symbol='triangle-up', size=10, color='blue')
-            ),
-            row=1, col=1
-        )
-
-        # 2. Trajetória Estoque Reservado 3D (Pt)
-        fig.add_trace(
-            go.Scatter(
-                x=df_sub['Tempo_Hora'], y=df_sub['Estoque_3D_Pt'],
-                mode='lines', name='Estoque Reserva 3D (Pt)',
-                line=dict(color='#9C27B0', width=2)
-            ),
-            row=2, col=1
-        )
-
-        fig.add_trace(
-            go.Scatter(
-                x=chegadas_3d['Tempo_Hora'], y=chegadas_3d['Estoque_3D_Pt'],
-                mode='markers', name='Conclusão Impressão 3D',
-                marker=dict(symbol='star', size=11, color='purple')
-            ),
-            row=2, col=1
-        )
-
-        fig.add_trace(
-            go.Scatter(
-                x=uso_3d['Tempo_Hora'], y=uso_3d['Estoque_3D_Pt'],
-                mode='markers', name='Uso/Substituição por Peça 3D',
-                marker=dict(symbol='square', size=8, color='magenta')
-            ),
-            row=2, col=1
-        )
-
-        fig.update_layout(
-            height=650,
-            title=None,
-            hovermode="x unified",
-            legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="center", x=0.5),
-            margin=dict(t=50, b=40, l=60, r=40),
-            plot_bgcolor='white',
-            paper_bgcolor='white',
-            font=dict(color='black')
-        )
+        fig.add_trace(go.Scatter(x=df_sub['Tempo_Hora'], y=df_sub['Estoque_Original_It'], mode='lines', name='Estoque Original (It)', line=dict(color='#2E7D32', width=2)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=[janela_horas[0], janela_horas[1]], y=[p['S'], p['S']], mode='lines', name=f"Teto S ({p['S']})", line=dict(color='gray', dash='dash')), row=1, col=1)
+        fig.add_trace(go.Scatter(x=[janela_horas[0], janela_horas[1]], y=[p['s'], p['s']], mode='lines', name=f"Gatilho Regular s ({p['s']})", line=dict(color='orange', dash='dash')), row=1, col=1)
+        fig.add_trace(go.Scatter(x=[janela_horas[0], janela_horas[1]], y=[p['s_star'], p['s_star']], mode='lines', name=f"Gatilho MA s* ({p['s_star']})", line=dict(color='red', dash='dash')), row=1, col=1)
+        fig.add_trace(go.Scatter(x=chegadas_orig['Tempo_Hora'], y=chegadas_orig['Estoque_Original_It'], mode='markers', name='Chegada Pedido Regular', marker=dict(symbol='triangle-up', size=10, color='blue')), row=1, col=1)
         
+        fig.add_trace(go.Scatter(x=df_sub['Tempo_Hora'], y=df_sub['Estoque_3D_Pt'], mode='lines', name='Estoque Reserva 3D (Pt)', line=dict(color='#9C27B0', width=2)), row=2, col=1)
+        fig.add_trace(go.Scatter(x=chegadas_3d['Tempo_Hora'], y=chegadas_3d['Estoque_3D_Pt'], mode='markers', name='Conclusão Impressão 3D', marker=dict(symbol='star', size=11, color='purple')), row=2, col=1)
+        fig.add_trace(go.Scatter(x=uso_3d['Tempo_Hora'], y=uso_3d['Estoque_3D_Pt'], mode='markers', name='Uso/Substituição por Peça 3D', marker=dict(symbol='square', size=8, color='magenta')), row=2, col=1)
+
+        fig.update_layout(height=650, title=None, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="center", x=0.5), margin=dict(t=50, b=40, l=60, r=40), plot_bgcolor='white', paper_bgcolor='white', font=dict(color='black'))
         fig.update_xaxes(title_text="Tempo (Horas)", row=2, col=1, showline=True, linewidth=1, linecolor='black', gridcolor='lightgray')
         fig.update_xaxes(showline=True, linewidth=1, linecolor='black', gridcolor='lightgray', row=1, col=1)
         fig.update_yaxes(title_text="Peças Originais", row=1, col=1, showline=True, linewidth=1, linecolor='black', gridcolor='lightgray')
         fig.update_yaxes(title_text="Peças 3D em Reserva", row=2, col=1, showline=True, linewidth=1, linecolor='black', gridcolor='lightgray')
         
-        try:
-            fig.write_image("figura1_alta_res.png", scale=3, width=1200, height=700)
-        except Exception as e:
-            pass
-            
         st.plotly_chart(fig, use_container_width=True)
 
         st.markdown("###  Diário de Eventos do Período Selecionado")
         df_ev_sub = df_ev[(df_ev['Tempo_Hora'] >= janela_horas[0]) & (df_ev['Tempo_Hora'] <= janela_horas[1])]
         st.dataframe(df_ev_sub, use_container_width=True, hide_index=True)
+
+# --- MODO 4: OTIMIZADOR REPARÁVEL (NOVO) ---
+elif choice == menu[3]:
+    st.header(menu[3] + " - Sistemas Reparáveis (Teorema de Palm)")
+    st.write("Dimensionamento de peças considerando o tempo de ciclo de conserto (TAT) e a taxa de descarte (Scrap Rate).")
+    
+    st.subheader("Insira os parâmetros operacionais abaixo:")
+    
+    L = st.number_input("Lambda (taxa de falha):", min_value=0.0000, value=0.05, step=0.01, format="%.6f")
+    N = st.number_input("Número de máquinas ativas (n):", min_value=1, value=10, step=1)
+    
+    col_t1, col_t2 = st.columns(2)
+    TAT = col_t1.number_input("Turnaround Time (TAT - tempo de conserto):", min_value=1.0, value=5.0, step=1.0)
+    LT = col_t2.number_input("Lead Time de Compra Nova (LT - reposição de sucata):", min_value=1.0, value=15.0, step=1.0)
+    
+    col_r1, col_r2 = st.columns(2)
+    Scrap = col_r1.number_input("Scrap Rate (Taxa de Descarte/Condenação %):", min_value=0.0, max_value=100.0, value=10.0, step=1.0)
+    R_PCT = col_r2.number_input("Risco Alvo (%):", min_value=0.01, max_value=99.99, value=5.00, step=1.0, format="%.2f")
+    
+    col_c1, col_c2 = st.columns(2)
+    custo_reparo = col_c1.number_input("Custo Unitário de Reparo (R$):", min_value=0.00, value=50.00, step=10.00, format="%.2f")
+    custo_nova = col_c2.number_input("Custo Unitário de Peça Nova (R$):", min_value=0.00, value=250.00, step=10.00, format="%.2f")
+
+    st.subheader("Clique no botão abaixo para calcular o dimensionamento:")    
+    botao_rep = st.button("Calcular Dimensionamento Reparável")        
+    
+    if botao_rep:
+        risco = R_PCT / 100.0
+        scrap_rate = Scrap / 100.0
+        LG = L * N
+        
+        # Cálculo do tempo equivalente no duto (Pipeline Time)
+        # Mistura peças consertadas (TAT) e peças repostas via compra por condenação (LT)
+        T_eq = (TAT * (1 - scrap_rate)) + (LT * scrap_rate)
+        
+        df_p, x_p, m_val = calcular_poisson(L, N, T_eq, risco)
+        df_n, x_n, sigma_val = calcular_normal(L, N, T_eq, risco)
+        
+        # Cálculo do custo baseado na proporção entre reparos e compras novas
+        custo_medio_peca = (custo_reparo * (1 - scrap_rate)) + (custo_nova * scrap_rate)
+        custo_total = custo_medio_peca * x_p
+
+        st.subheader("Parâmetros do Duto de Reparo")
+        col_m1, col_m2, col_m3 = st.columns(3)
+        col_m1.metric("Média de Peças no Duto (m)", f"{m_val:.2f}")
+        col_m2.metric("Tempo Equivalente no Ciclo", f"{T_eq:.2f}")
+        col_m3.metric("Custo Est. (Inventário Ótimo)", f"R$ {custo_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+
+        st.divider()
+
+        col_tabela1, col_tabela2 = st.columns(2)
+        with col_tabela1:
+            exibir_resumo_streamlit(df_p, x_p, "Distribuição de Poisson", mostrar_contexto=True)
+            
+        with col_tabela2:
+            if LG >= 20: 
+                exibir_resumo_streamlit(df_n, x_n, "Aproximação Normal", mostrar_contexto=True)
+            else:
+                st.subheader("Aproximação Normal")
+                st.warning("Aproximação pela Normal não recomendada.")
+
+       
