@@ -326,7 +326,7 @@ def fmt_brl(valor, casas=2):
 
 
 def fmt_lote(Q):
-    return "sem limite" if Q >= LOTE_SEM_LIMITE else str(Q)
+    return "sem MA" if Q <= 0 else ("sem limite" if Q >= LOTE_SEM_LIMITE else str(Q))
 
 
 def ic95(x):
@@ -737,24 +737,28 @@ def executar_otimizacao(e, progresso=None):
     #    para todas as políticas, o que permite comparações pareadas)
     n_val = int(e['N_validacao'])
     sementes = range(SEMENTE_VALIDACAO, SEMENTE_VALIDACAO + n_val)
-    candidatas = [('ma', p) for p in busca_ma['finalistas']] + \
-                 [('base', p) for p in busca_base['finalistas'][:3]]
+    fin_base = list(busca_base['finalistas'][:3])
+    # A política sem MA é um caso particular da política com MA (lote 0); por isso as
+    # finalistas sem MA também concorrem ao posto de recomendada. Assim, o ótimo
+    # "com MA" nunca é pior que a referência sem MA.
+    fin_ma = list(dict.fromkeys(list(busca_ma['finalistas']) + fin_base))
     validacao = {}
-    for i, (tipo, pol) in enumerate(candidatas):
-        validacao[(tipo, pol)] = avaliar_politica(pol, params, sementes)
-        faixa(0.60, 0.80)((i + 1) / len(candidatas), "Validando finalistas com réplicas independentes...")
+    for i, pol in enumerate(fin_ma):
+        validacao[pol] = avaliar_politica(pol, params, sementes)
+        faixa(0.60, 0.80)((i + 1) / len(fin_ma), "Validando finalistas com réplicas independentes...")
 
-    fin_ma = busca_ma['finalistas']
-    fin_base = busca_base['finalistas'][:3]
-    pol_ma = min(fin_ma, key=lambda p: validacao[('ma', p)][:, IDX_CUSTO].mean())
-    pol_base = min(fin_base, key=lambda p: validacao[('base', p)][:, IDX_CUSTO].mean())
-    a_ma = validacao[('ma', pol_ma)]
-    a_base = validacao[('base', pol_base)]
+    def _media(p):
+        return validacao[p][:, IDX_CUSTO].mean()
 
-    # Tabela dos finalistas, com teste pareado contra a política recomendada
+    pol_ma = min(fin_ma, key=_media)
+    pol_base = min(fin_base, key=_media)
+    a_ma = validacao[pol_ma]
+    a_base = validacao[pol_base]
+
+    # Tabela dos 5 melhores, com teste pareado contra a política recomendada
     linhas = []
-    for pol in sorted(fin_ma, key=lambda p: validacao[('ma', p)][:, IDX_CUSTO].mean()):
-        a = validacao[('ma', pol)]
+    for pol in sorted(fin_ma, key=_media)[:N_FINALISTAS]:
+        a = validacao[pol]
         dif = a[:, IDX_CUSTO] - a_ma[:, IDX_CUSTO]
         if pol == pol_ma:
             status = "Recomendada"
@@ -974,6 +978,7 @@ def figura_trajetoria(r, janela):
     return fig
 
 
+
 # =====================================================================
 # INTERFACE PRINCIPAL DO STREAMLIT
 # =====================================================================
@@ -1190,7 +1195,10 @@ elif choice == menu[2]:
         p4.caption(f"IC 95%: ± {fmt_brl(k['ic_economia'])} (± {k['ic_economia_pct']:.1f} p.p.) · "
                    f"referência sem MA: s={s_b}, S={S_b}")
 
-        if k['economia_ano'] + k['ic_economia'] < 0:
+        if Q_o == 0:
+            st.info("Neste cenário a melhor política é **sem impressão 3D**: nenhuma combinação com MA ficou "
+                    "mais barata que a melhor política só com fornecedor. A impressão não se paga com estes parâmetros.")
+        elif k['economia_ano'] + k['ic_economia'] < 0:
             st.warning("Com estes parâmetros, a melhor política sem MA é significativamente mais barata que a melhor "
                        "política com MA (IC 95%). A impressão 3D não se paga neste cenário.")
         elif k['economia_ano'] - k['ic_economia'] <= 0:
